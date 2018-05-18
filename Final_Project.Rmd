@@ -1,0 +1,201 @@
+---
+title: "Final Project - Car MPG Data"
+author: "Mark Bedanov-Pack"
+date: "5/16/2018"
+output: html_document
+---
+
+## Introduction
+In the past few decades, car fuel efficiency has made substantial improvements due to advances in technology. In this tutorial, we will be taking a close look at automotive MPG data and the different factors that influence it. Using data from the U.S. Department of Energy, we  will show you how to collect, clean, and parse data for your specific needs. After that, we will conduct some exploratory data analysis and visualization. Then, we will use different linear regression techniques to further examine the data. By the end of the tutorial, you will hopefully have a better grasp on a typical data science pipeline and how to implement the various components of it.
+
+The reason I chose this topic is because I am very passionate about the automotive industry. I spend a great amount of time reading about new cars, watching videos about cars, and driving cars. I thought this would be a very interesting dataset to examine, given the advances in fuel efficiency and the increased prevalence of Turbocharged engines. Based on various attributes of a car, I aim to perform data exploration and create linear regression models that can eventually be used to predict a car's MPG.
+
+## Required Tools
+In this tutorial, you will need RStudio which can be downloaded here: https://www.rstudio.com/products/rstudio/
+
+You will also need to install various packages depending on the type of work you are doing. A few examples we use here are:
+ * tidyverse
+ * stringr
+ * xlsx
+ * ggplot2
+
+For help on installing packages in RStudio, visit: https://www.r-bloggers.com/installing-r-packages/
+
+## Data Collection and Management
+Download the dataset from https://www.fueleconomy.gov/feg/download.shtml. We will be using the 2017 data from the Fuel Economy Guide table. This data will be in a Microsoft Excel sheet (.xlsx) file. The file contains a long list of attributes for 2017 model cars. Some of these attributes include different measures of MPG, number of cylinders, types of transmissions, and more.
+
+Next, we will import the various libraries that we will be using. Next, we load the data file into RStudio using the read.xlsx() function from the xlsx library. We specify which sheet in the Excel file we want with the sheetName parameter. We save this data into a dataframe called car_data. A dataframe is a 2D table that contains and manages your data.
+ * More information on dataframes: https://www.tutorialspoint.com/r/r_data_frames.htm
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loads various libraries into our environment.
+library(tidyverse)
+library(stringr)
+library(xlsx)
+library(rvest)
+library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(broom)
+
+# reads the Excel sheet into a dataframe called car_data
+car_data <- read.xlsx("/users/mark/2017_Data.xlsx", sheetName="FEguide")
+# show the number of rows and columns of the dataframe
+nrow(car_data)
+ncol(car_data)
+# displays the columns of the dataframe - uncomment to do so
+#colnames(car_data)
+```
+
+We can see that the dataframe has 449 columns and 1249 rows. Each row is a car and each column represents one attribute of the car. By looking at the column names from the past section, we can see that we only need a few of the columns for our purposes. The rest are extraneous and can be excluded. Let's create a new dataframe with the columns we want and rename the columns. Next, let's clean up the Transmission column so that the data consists of "Auto" (Automatic) or "Manu" (Manual) for simplicity. Lastly, let's handle rows with missing data. This dataframe only had 5 rows that had NA's and those rows were composed entirely of NA's so we remove them completely.
+
+More information on:
+ * Missing data: https://www.statmethods.net/input/missingdata.html
+ * Cleaning data: http://www.rpubs.com/williamsurles/291107
+ 
+```{r}
+# creates a new dataframe called data. Selects only the columns that we want from the original dataframe
+data <- car_data[,c("Division", "Carline", "Eng.Displ", "X..Cyl", "Comb.FE..Guide....Conventional.Fuel", "Air.Aspiration.Method.Desc", "X..Gears", "Transmission")]
+# prints the first 6 rows of the dataframe
+head(data)
+
+# renames the columns to more readable and understandable names
+names(data) <- c("Company", "Model", "EngineDisplacement", "NumCylinders", "CombinedMPG", "AirAspiration", "NumGears", "Transmission")
+
+# crops the text to the first 4 letters to get rid of extraneous information in the Transmission column. We only want to know if the transmissions are automatic or manual
+data$Transmission <- substring(data$Transmission,1,4)
+
+# removes rows that are missing data which is represented by NA
+data <- na.omit(data)
+head(data)
+```
+
+
+## Summary Statistics
+With the summary() function, we can see several statistics for each attribute. For a categorical attribute such as the car's Company, the function will display the frequency of each car Company in the data. For a continuous numberical category such as Combined MPG, it will display statistics such as the minimum value, 1st quartile value, median, mean, 3rd quartile, and max value in the data. For example, we can see that the median CombinedMPG is 23 and the mean is 23.25. Furthermore, the minimum value is 11 and the maximum is 58 which is quite a large range.
+
+Next, we make a small pipeline to apply multiple operations on the dataset to see different statistics. We want to separate the cars by their Air Aspiration type and compute the mean and standard deviations for each type. In the pipeline, we use the group_by() function to group by the AirAspiration column and then we use the summarize() function to calculate the mean and standard deviations for Combined MPG. The result is a table that displays the aggregate values.
+
+Based on the table, we can see that the mean MPG for Naturally Aspirated and Turbocharged cars are fairly similar at 23.32 MPG and 23.51 respectively whereas Supercharged cars are lower at 19.44 MPG. We also see that Naturally Aspirated cars have a fairly large StDev of 6.81 while Supercharged and Turbocharged cars have StDevs of 3.04 and 4.73 respectively so the spread of Naturally Aspirated cars deviates farther from the mean.
+```{r}
+summary(data)
+data %>%
+  group_by(AirAspiration) %>% summarize(MeanMPG=mean(CombinedMPG), StDevMPG=sd(CombinedMPG))
+```
+
+# Visualization
+Next, we will make some plots to see how the different attributes of cars correlate with each other in our data. We use functions from the ggplot2 library to make these graphs.
+ * More information on ggplot: http://www.sthda.com/english/wiki/be-awesome-in-ggplot2-a-practical-guide-to-be-highly-effective-r-software-and-data-visualization
+
+## Plot 1 - Engine Displacement VS. Combined MPG
+In the following 5 plots, we will be using a pipeline with different ggplot functions to make our graphs.
+
+This first plot is a scatter plot to show Engine Displacement vs. Combined MPG. In the ggplot() function, you specify the x and y variables for your graph and then the type of graph. I used geom_point() to make a scatterplot. The geom_smooth(method=lm) line plots the line of best fit across the points. As you can see, there is a clear correlation that when engine displacement increases, mpg decreases.
+```{r}
+data %>%
+  ggplot(aes(x=EngineDisplacement, y=CombinedMPG)) +
+    geom_point() +
+    geom_smooth(method=lm) + 
+    labs(title="Engine Displacement VS. Combined MPG",
+         x = "Engine Displacement in Liters",
+         y = "Combined MPG")
+```
+
+## Plot 2 - Engine Displacement VS. Combined MPG Grouped by Air Aspiration
+In this plot, we repeated most of the steps from the previous plot except we color coded the points by the type of Air Aspiration method that they used (turbo, supercharger, etc). Each category has its own line of best fit in its respective color. We can see that Supercharged cars have the least steep negative slope, followed by Turbocharged cars, and then Naturally Aspirated cars with the steepest negative slope of the groups.
+```{r}
+data %>%
+  ggplot(aes(x=EngineDisplacement, y=CombinedMPG, color=AirAspiration)) +
+    geom_point() +
+    geom_smooth(method=lm) + 
+    labs(title="Engine Displacement VS. Combined MPG Grouped by Air Aspiration",
+         x = "Engine Displacement in Liters",
+         y = "Combined MPG")
+```
+
+## Plot 3 - Number of Cylinders VS. Combined MPG
+In this plot, we plotted the number of cylinders in the engine vs mpg. I put the factor() function around NumCylinders because the cylinders can only be integers so this makes a violin plot for each integer. Instead of geom_point(), we use geom_violin() which makes a violin shaped plot for each cylinder number. This helps us visualize the frequency of MPG's for each cylinder number. The thickest parts of the violins are where the most points are located. Violin plots are also great ways to see how distributions are skewed and to see the presence of outliers.
+
+Based on the plot, we can make a couple observations. It is clear that as the number of cylinders in an engine increases, the MPG decreases. Also, each violin gets smaller in height as the number of cylinders goes up, showing that the range decreases as well. It is also interesting to see that for 4 cylinder engines, there are very high outliers reaching almost 60 MPG whereas 12 cylinder engines are between about 13 and 17 MPG.
+```{r}
+data %>%
+  ggplot(aes(x=factor(NumCylinders), y=CombinedMPG)) +
+    geom_violin() +
+    labs(title="Number of Cylinders VS. Combined MPG",
+         x = "Number of Cylinders",
+         y = "Combined MPG")
+```
+
+## Plot 4 - Number of Cylinders VS. Engine Displacement
+This is another violin plot but in this case the Y variable is Engine Displacement. This shows a clear positive correlation between cylinders and engine displacement which makes logical sense as these are both attributes that increase with larger engines. 
+```{r}
+data %>%
+  ggplot(aes(x=factor(NumCylinders), y=EngineDisplacement)) +
+    geom_violin() +
+    labs(title="Number of Cylinders VS. Engine Displacement",
+         x = "Number of Cylinders",
+         y = "Engine Displacement in Liters")
+```
+
+## Plot 5 - Air Aspiration Method VS. Combined MPG
+In this plot, we used violins again to plot Air Aspiration methods vs MPG. Each violin represents the points in each of the 4 Air Aspiration methods. We can see that Naturally Aspirated engines have the largest range, followed by Turbocharged engines, follwed by Supercharged engines, and lastly Turbocharged + Supercharged engines. We can also look at where the violins are the thickest. Naturally Aspirated and Supercharged both have the most points around the 20 MPG range whereas Turbocharged engines are clustered the most around 25 MPG.
+```{r}
+data %>%
+  ggplot(aes(x=factor(AirAspiration), y=CombinedMPG)) +
+    geom_violin() + 
+    labs(title="Air Aspiration Method VS. Combined MPG",
+         x = "Air Aspiration",
+         y = "Combined MPG")
+```
+
+
+# Linear Regression Modeling
+Here we make 4 different linear regression models using the lm() function. In all of them, we are trying to predict CombinedMPG but we use different variable combinations to do so. In model1, we use EngineDisplacement. By looking at the model1_stats table, we can see that the p.value is less than our alpha value, 0.05, and that means there is a statistically significant relationship between engine displacement and MPG. We look at the estimate column to see that the model has 33.32 as the y intercept and -3.23 as the slope. In other words, for each additional liter of engine displacement, the model says that the MPG will decrease by 3.23.
+
+In model2, we tried using AirAspiration but some of the p values were above 0.05 so that was statistically insignificant and we do not reject the null hypothesis that there is no statistically significant relationship between that variable and MPG.
+
+In models 3 and 4, we added more variables like the number of cylinders and gears in a car. We can look at the tables and see that the number of gears and engine displacement are statistically significant in both models but the number of cylinders is not. 
+
+More information: https://www.rdocumentation.org/packages/stats/versions/3.5.0/topics/lm
+```{r}
+model1 <- lm(formula = CombinedMPG ~ EngineDisplacement, data=data)
+model1_stats <- model1%>% tidy()
+model1_stats 
+
+model2 <- lm(formula = CombinedMPG ~ AirAspiration, data=data)
+model2_stats <- model2%>% tidy()
+model2_stats 
+
+model3 <- lm(formula = CombinedMPG ~ 1 + NumGears + EngineDisplacement + NumCylinders, data=data)
+model3_stats <- model3 %>% tidy()
+model3_stats 
+
+model4 <- lm(formula = CombinedMPG ~ 1 + NumGears + EngineDisplacement, data=data)
+model4_stats <- model4 %>% tidy()
+model4_stats 
+```
+
+## Comparing Models
+Here we will look at the AIC, BIC, and r squared columns for each model. You want the AIC and BIC values to be as low as possible because this means the model is less penalized by the size and complexity of the model whereas you want the r squared value to be higher. We can see that model 3 and 4 have the lowest AIC and BIC values and highest r squared values. However, model 3 had the NumCylinders variable which did not reject the null hypothesis because of its high p value so we will pick model 4 as our best model of the 4.
+
+It is also useful to incorporate the F test to determine which models are the best. 
+
+More information: https://stats.stackexchange.com/questions/5135/interpretation-of-rs-lm-output
+
+Next, we use the augment() function on model4 to plot and check its linaerity. This plots the residuals and we can see that the model is not completely linear for our dataset. There are ways to handle nonlinearity in regression models but for the sake of this tutorial I wanted to demonstrate the methods of creating linear models using the lm() function.
+```{r}
+glance(model1)
+glance(model2)
+glance(model3)
+glance(model4)
+
+model4 %>% augment() %>%
+  ggplot(aes(x=.fitted,y=.resid)) +
+    geom_point() + 
+    geom_smooth() +
+    labs(x="fitted", y="residual")
+```
+
+# Conclusion
+After reading this tutorial, I hope you have a better understanding of data curation, cleaning, exploratory analysis, visualization, and linear regression modeling. By using automotive MPG data, we were able to find statistically significant relationships between MPG and variables such as engine displacement and the number of gears in a transmission. We were also able to try many different techniques of data visualization which showed us how to inspect the correlations between variables and our target dependent variable. They also showed us how to identify the distributions of our data points and see if there was a skew in the dataset. In conclusion, I hope you found this tutorial to be a helpful resource in your data science endeavors.
